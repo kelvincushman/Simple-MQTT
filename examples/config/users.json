@@ -1,0 +1,28 @@
+{
+    "users": [
+        {
+            "username": "admin",
+            "password": "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918",
+            "acl": {
+                "publish": ["#"],
+                "subscribe": ["#"]
+            }
+        },
+        {
+            "username": "sensor1",
+            "password": "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8",
+            "acl": {
+                "publish": ["sensors/+/temperature", "sensors/+/humidity"],
+                "subscribe": ["controls/#"]
+            }
+        },
+        {
+            "username": "viewer",
+            "password": "b133a0c0e9bee3be20163d2ad31d6248db292aa6dcb1ee087a2aa50e0fc75ae2",
+            "acl": {
+                "publish": [],
+                "subscribe": ["sensors/#"]
+            }
+        }
+    ]
+}
