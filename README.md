@@ -1,36 +1,17 @@
 # Simple MQTT Broker
 
-A lightweight, feature-rich MQTT broker and client implementation in TypeScript.
+A modern, TypeScript-based MQTT broker with support for WebSocket connections, multiple storage backends, and authentication mechanisms.
 
 ## Features
 
-- **MQTT Protocol Support**
-  - MQTT 3.1.1 and 5.0 compatibility
-  - QoS levels 0, 1, and 2
-  - Retained messages
-  - Last Will and Testament (LWT)
-  - Clean/Persistent Sessions
-
-- **Multiple Storage Options**
-  - In-memory storage (default)
-  - MongoDB persistence
-  - Redis persistence
-
-- **WebSocket Support**
-  - MQTT over WebSocket
-  - Secure WebSocket (WSS)
-
-- **Security Features**
-  - TLS/SSL support
-  - Username/Password authentication
-  - HTTP-based authentication
-  - Client certificate authentication
-
-- **Modern TypeScript Implementation**
-  - Full type safety
-  - Modern async/await patterns
-  - Event-driven architecture
-  - Extensive error handling
+- 🚀 Modern TypeScript implementation
+- 🔌 TCP and WebSocket support
+- 💾 Multiple storage backends (Memory, Redis, MongoDB)
+- 🔒 Authentication support (HTTP, Basic)
+- 📝 Comprehensive logging and error handling
+- 🔄 QoS support (0, 1, 2)
+- 🔐 TLS/SSL support
+- 📦 Easy to use API
 
 ## Installation
 
@@ -40,7 +21,7 @@ npm install simple-mqtt-broker
 
 ## Quick Start
 
-### Start the Broker
+### Basic Broker
 
 ```typescript
 import { SimpleMQTTBroker } from 'simple-mqtt-broker';
@@ -56,12 +37,16 @@ const broker = new SimpleMQTTBroker({
     }
 });
 
+broker.on('client.connected', (info) => {
+    console.log('Client connected:', info.id);
+});
+
 broker.start()
     .then(() => console.log('Broker started'))
     .catch(console.error);
 ```
 
-### Connect a Client
+### Basic Client
 
 ```typescript
 import { MQTTClient } from 'simple-mqtt-broker';
@@ -69,141 +54,43 @@ import { MQTTClient } from 'simple-mqtt-broker';
 const client = new MQTTClient({
     brokerUrl: 'mqtt://localhost:1883',
     options: {
-        keepalive: 60,
-        reconnectPeriod: 1000
+        clientId: 'test-client',
+        keepalive: 60
     }
 });
 
-await client.connect();
+async function run() {
+    await client.connect();
+    console.log('Connected to broker');
 
-// Subscribe to topics
-await client.subscribe('test/topic');
+    await client.subscribe('test/topic');
+    console.log('Subscribed to test/topic');
 
-// Set up message handler
-client.onMessage('test/topic', (topic, message) => {
-    console.log(`Received on ${topic}:`, message.toString());
-});
+    client.onMessage('test/topic', (topic, message) => {
+        console.log(`Received message on ${topic}:`, message.toString());
+    });
 
-// Publish messages
-await client.publish('test/topic', 'Hello MQTT!', { qos: 1 });
+    await client.publish('test/topic', 'Hello MQTT!');
+    console.log('Published message');
+}
+
+run().catch(console.error);
 ```
 
-## Configuration
+## Advanced Configuration
 
-### Broker Configuration
+### Broker with MongoDB Storage and HTTP Authentication
 
 ```typescript
-interface BrokerConfig {
+const broker = new SimpleMQTTBroker({
     mqtt: {
-        port: number;
-        host: string;
-        websocket?: {
-            enabled: boolean;
-            port: number;
-        };
-    };
-    persistence?: {
-        enabled: boolean;
-        type: 'memory' | 'redis' | 'mongodb';
-        redis?: {
-            url: string;
-        };
-        mongodb?: {
-            url: string;
-            database: string;
-            collection: string;
-        };
-    };
-    auth?: {
-        enabled: boolean;
-        type: 'basic' | 'http';
-        http?: {
-            url: string;
-            method: string;
-            headers?: Record<string, string>;
-        };
-    };
-    tls?: {
-        enabled: boolean;
-        key: string;
-        cert: string;
-        ca?: string;
-    };
-}
-```
-
-### Client Configuration
-
-```typescript
-interface ClientConfig {
-    brokerUrl: string;
-    options?: {
-        clientId?: string;
-        keepalive?: number;
-        reconnectPeriod?: number;
-        connectTimeout?: number;
-        username?: string;
-        password?: string;
-        clean?: boolean;
-        will?: {
-            topic: string;
-            payload: string;
-            qos?: 0 | 1 | 2;
-            retain?: boolean;
-        };
-    };
-}
-```
-
-## Running the Broker
-
-### Using Scripts
-
-Windows (PowerShell):
-```powershell
-.\scripts\start-broker.ps1
-```
-
-Windows (Command Prompt):
-```batch
-scripts\start-broker.bat
-```
-
-Linux/macOS:
-```bash
-./scripts/start-broker.sh
-```
-
-For more details about running the broker, see the [scripts README](scripts/README.md).
-
-## Storage Options
-
-### In-Memory Storage
-```typescript
-const broker = new SimpleMQTTBroker({
-    persistence: {
-        enabled: true,
-        type: 'memory'
-    }
-});
-```
-
-### Redis Storage
-```typescript
-const broker = new SimpleMQTTBroker({
-    persistence: {
-        enabled: true,
-        type: 'redis',
-        redis: {
-            url: 'redis://localhost:6379'
+        port: 1883,
+        host: '0.0.0.0',
+        websocket: {
+            enabled: true,
+            port: 8080
         }
-    }
-});
-```
-
-### MongoDB Storage
-```typescript
-const broker = new SimpleMQTTBroker({
+    },
     persistence: {
         enabled: true,
         type: 'mongodb',
@@ -212,52 +99,67 @@ const broker = new SimpleMQTTBroker({
             database: 'mqtt',
             collection: 'messages'
         }
-    }
-});
-```
-
-## Security
-
-### Enable TLS/SSL
-```typescript
-const broker = new SimpleMQTTBroker({
-    tls: {
-        enabled: true,
-        key: '/path/to/private.key',
-        cert: '/path/to/certificate.crt'
-    }
-});
-```
-
-### HTTP Authentication
-```typescript
-const broker = new SimpleMQTTBroker({
+    },
     auth: {
         enabled: true,
         type: 'http',
         http: {
-            url: 'https://api.example.com/auth',
-            method: 'POST',
-            headers: {
-                'Authorization': 'Bearer token'
-            }
+            url: 'http://localhost:3000/auth',
+            method: 'POST'
         }
     }
 });
 ```
 
-## Examples
+### SSL/TLS Configuration
 
-See the [examples](src/modern/examples) directory for more usage examples.
+```typescript
+const broker = new SimpleMQTTBroker({
+    mqtt: {
+        port: 8883,
+        host: '0.0.0.0'
+    },
+    tls: {
+        enabled: true,
+        key: '/path/to/server.key',
+        cert: '/path/to/server.crt'
+    }
+});
+```
+
+## API Documentation
+
+### SimpleMQTTBroker
+
+The main broker class that handles MQTT connections and message routing.
+
+#### Events
+
+- `client.connected`: Emitted when a client connects
+- `client.disconnected`: Emitted when a client disconnects
+- `message.published`: Emitted when a message is published
+- `client.subscribe`: Emitted when a client subscribes to a topic
+- `broker.error`: Emitted when an error occurs
+
+### MQTTClient
+
+A client class for connecting to MQTT brokers.
+
+#### Methods
+
+- `connect()`: Connect to the broker
+- `disconnect()`: Disconnect from the broker
+- `publish(topic, message, options?)`: Publish a message
+- `subscribe(topic, options?)`: Subscribe to a topic
+- `unsubscribe(topic)`: Unsubscribe from a topic
+- `onMessage(topic, handler)`: Add a message handler
+- `removeMessageHandler(topic, handler)`: Remove a message handler
+- `isConnected()`: Check connection status
 
 ## Contributing
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT

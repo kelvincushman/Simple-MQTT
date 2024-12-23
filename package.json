@@ -1,20 +1,29 @@
 {
   "name": "simple-mqtt-broker",
   "version": "1.0.0",
-  "description": "A simple MQTT broker with advanced features",
-  "main": "dist/broker/SimpleMQTTBroker.js",
-  "types": "dist/broker/SimpleMQTTBroker.d.ts",
+  "description": "A modern TypeScript MQTT broker implementation",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/broker/example.js",
-    "start:debug": "DEBUG=aedes:*,mqtt:* node dist/broker/example.js",
+    "start": "node dist/examples/basic-broker.js",
+    "start:advanced": "node dist/examples/advanced-broker.js",
     "test": "jest",
     "lint": "eslint src/**/*.ts",
-    "format": "prettier --write \"src/**/*.ts\""
+    "clean": "rimraf dist",
+    "prepare": "npm run build"
   },
+  "keywords": [
+    "mqtt",
+    "broker",
+    "typescript",
+    "websocket",
+    "iot"
+  ],
+  "author": "",
+  "license": "MIT",
   "dependencies": {
     "aedes": "^0.50.0",
-    "axios": "^1.6.2",
     "mongodb": "^6.3.0",
     "mqtt": "^5.3.3",
     "redis": "^4.6.11",
@@ -22,13 +31,13 @@
   },
   "devDependencies": {
     "@types/jest": "^29.5.11",
-    "@types/node": "^20.10.6",
     "@types/mongodb": "^4.0.7",
+    "@types/node": "^20.10.6",
     "@typescript-eslint/eslint-plugin": "^6.18.0",
     "@typescript-eslint/parser": "^6.18.0",
     "eslint": "^8.56.0",
     "jest": "^29.7.0",
-    "prettier": "^3.1.1",
+    "rimraf": "^5.0.5",
     "ts-jest": "^29.1.1",
     "typescript": "^5.3.3"
   }

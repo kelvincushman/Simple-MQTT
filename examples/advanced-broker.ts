@@ -1,36 +1,17 @@
-import { SimpleMQTTBroker } from '../src/broker/SimpleMQTTBroker';
-import * as path from 'path';
+import { SimpleMQTTBroker } from '../src';
+import { MongoStorage } from '../src';
 
 async function runAdvancedBroker() {
     // Create broker with advanced configuration
     const broker = new SimpleMQTTBroker({
         mqtt: {
             port: 1883,
-            host: 'localhost',
+            host: '0.0.0.0',
             websocket: {
                 enabled: true,
                 port: 8080
             }
         },
-        // SSL Configuration
-        ssl: {
-            enabled: true,
-            port: 8883,
-            key: path.join(__dirname, 'certs', 'server.key'),
-            cert: path.join(__dirname, 'certs', 'server.crt'),
-            requestCert: true,
-            rejectUnauthorized: true
-        },
-        // Authentication Configuration
-        auth: {
-            type: 'file',
-            allowAnonymous: false,
-            allowZeroByteClientId: false,
-            config: {
-                filePath: path.join(__dirname, 'config', 'users.json')
-            }
-        },
-        // Persistence Configuration
         persistence: {
             enabled: true,
             type: 'mongodb',
@@ -39,44 +20,42 @@ async function runAdvancedBroker() {
                 database: 'mqtt',
                 collection: 'messages'
             }
+        },
+        auth: {
+            enabled: true,
+            type: 'http',
+            http: {
+                url: 'http://localhost:3000/auth',
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            }
+        },
+        tls: {
+            enabled: true,
+            key: './certs/server.key',
+            cert: './certs/server.crt'
         }
     });
 
     // Set up event handlers
-    broker.on('broker.started', (info) => {
-        console.log(`MQTT Broker started on ${info.host}:${info.port}`);
-        if (info.ssl) {
-            console.log(`SSL enabled on port ${info.ssl.port}`);
-        }
-    });
-
     broker.on('client.connected', (info) => {
-        console.log(`Client connected: ${info.id}`);
-        console.log(`Authentication method: ${info.auth?.method}`);
+        console.log('Client connected:', info.id);
     });
 
-    broker.on('client.disconnected', (info) => {
-        console.log(`Client disconnected: ${info.id}`);
+    broker.on('message.published', (info) => {
+        console.log(`Message published on ${info.topic}:`, info.payload.toString());
     });
 
-    broker.on('message.published', async (info) => {
-        console.log(`Message published on ${info.topic} by ${info.clientId || 'anonymous'}`);
-        console.log(`Payload: ${info.payload.toString()}`);
-        
-        // Example: Retrieve stored messages
-        const storage = broker.getStorage();
-        const messages = await storage.getMessages(info.topic);
-        console.log(`Total messages in topic: ${messages.length}`);
-    });
-
-    broker.on('client.error', (error) => {
-        console.error('Client error:', error);
+    broker.on('client.subscribe', (info) => {
+        console.log(`Client ${info.clientId} subscribed to:`, info.subscriptions);
     });
 
     // Start the broker
     try {
         await broker.start();
-        console.log('Advanced MQTT Broker is running');
+        console.log('Broker started with advanced configuration');
 
         // Handle shutdown gracefully
         process.on('SIGINT', async () => {

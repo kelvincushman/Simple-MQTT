@@ -1,16 +1,19 @@
-import { IStorage, StoredMessage } from './IStorage';
+import { IStorage } from './IStorage';
+import { StoredMessage } from '../../types';
+import EventEmitter from 'events';
 export interface RedisConfig {
-    host: string;
-    port: number;
+    url?: string;
+    host?: string;
+    port?: number;
     password?: string;
 }
-export declare class RedisStorage implements IStorage {
+export declare class RedisStorage extends EventEmitter implements IStorage {
     private client;
-    private readonly messagePrefix;
+    private connected;
     constructor(config: RedisConfig);
-    storeMessage(topic: string, payload: Buffer): Promise<void>;
-    getMessages(topic: string, limit?: number): Promise<StoredMessage[]>;
-    clearMessages(topic?: string): Promise<void>;
     connect(): Promise<void>;
     disconnect(): Promise<void>;
+    storeMessage(topic: string, payload: Buffer): Promise<void>;
+    getMessages(topic: string): Promise<StoredMessage[]>;
+    clearMessages(topic?: string): Promise<void>;
 }

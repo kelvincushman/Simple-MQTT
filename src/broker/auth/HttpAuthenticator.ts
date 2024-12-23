@@ -1,46 +1,37 @@
-import { IAuthenticator, AuthResult, AuthCredentials } from './IAuthenticator';
-import axios from 'axios';
+import { IAuthenticator, AuthCredentials } from './IAuthenticator';
 
 export interface HttpAuthConfig {
-    authUrl: string;
-    aclUrl: string;
-    timeout?: number;
+    url: string;
+    method: string;
+    headers?: Record<string, string>;
 }
 
 export class HttpAuthenticator implements IAuthenticator {
-    constructor(private config: HttpAuthConfig) {}
+    private config: HttpAuthConfig;
 
-    async authenticate(credentials: AuthCredentials): Promise<AuthResult> {
-        try {
-            const response = await axios.post(this.config.authUrl, {
-                username: credentials.username,
-                password: credentials.password?.toString(),
-                clientId: credentials.clientId
-            }, {
-                timeout: this.config.timeout || 5000
-            });
-
-            return { success: response.status === 200 };
-        } catch (error) {
-            return {
-                success: false,
-                error: error instanceof Error ? error.message : 'Authentication failed'
-            };
-        }
+    constructor(config: HttpAuthConfig) {
+        this.config = config;
     }
 
-    async authorize(clientId: string, topic: string, action: 'publish' | 'subscribe'): Promise<boolean> {
+    public async authenticate(credentials: AuthCredentials): Promise<boolean> {
         try {
-            const response = await axios.post(this.config.aclUrl, {
-                clientId,
-                topic,
-                action
-            }, {
-                timeout: this.config.timeout || 5000
+            const response = await fetch(this.config.url, {
+                method: this.config.method,
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...this.config.headers
+                },
+                body: JSON.stringify(credentials)
             });
 
-            return response.status === 200;
+            if (!response.ok) {
+                return false;
+            }
+
+            const result = await response.json();
+            return result.authenticated === true;
         } catch (error) {
+            console.error('HTTP Authentication error:', error);
             return false;
         }
     }

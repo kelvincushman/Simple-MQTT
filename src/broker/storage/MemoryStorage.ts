@@ -1,29 +1,56 @@
-import { IStorage, StoredMessage } from './IStorage';
+import { IStorage } from './IStorage';
+import { StoredMessage } from '../../types';
 
 export class MemoryStorage implements IStorage {
-    private messages: StoredMessage[] = [];
+    private messages: Map<string, StoredMessage[]>;
+    private connected: boolean = false;
+
+    constructor() {
+        this.messages = new Map();
+    }
+
+    public async connect(): Promise<void> {
+        this.connected = true;
+    }
+
+    public async disconnect(): Promise<void> {
+        this.connected = false;
+        this.messages.clear();
+    }
 
     public async storeMessage(topic: string, payload: Buffer): Promise<void> {
+        if (!this.connected) {
+            throw new Error('Memory storage not connected');
+        }
+
         const message: StoredMessage = {
             topic,
             payload,
             timestamp: new Date()
         };
-        this.messages.push(message);
+
+        const topicMessages = this.messages.get(topic) || [];
+        topicMessages.push(message);
+        this.messages.set(topic, topicMessages);
     }
 
-    public async getMessages(topic: string, limit: number = 100): Promise<StoredMessage[]> {
-        return this.messages
-            .filter(msg => msg.topic === topic)
-            .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
-            .slice(0, limit);
+    public async getMessages(topic: string): Promise<StoredMessage[]> {
+        if (!this.connected) {
+            throw new Error('Memory storage not connected');
+        }
+
+        return this.messages.get(topic) || [];
     }
 
     public async clearMessages(topic?: string): Promise<void> {
+        if (!this.connected) {
+            throw new Error('Memory storage not connected');
+        }
+
         if (topic) {
-            this.messages = this.messages.filter(msg => msg.topic !== topic);
+            this.messages.delete(topic);
         } else {
-            this.messages = [];
+            this.messages.clear();
         }
     }
 }

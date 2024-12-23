@@ -1,5 +1,6 @@
 import { MongoClient, Collection } from 'mongodb';
 import { IStorage } from './IStorage';
+import { StoredMessage } from '../../types';
 
 export interface MongoConfig {
     url: string;
@@ -7,35 +8,35 @@ export interface MongoConfig {
     collection: string;
 }
 
-export interface StoredMessage {
-    topic: string;
-    payload: Buffer;
-    timestamp: Date;
-}
-
 export class MongoStorage implements IStorage {
     private client: MongoClient;
-    private collection?: Collection<StoredMessage>;
-    private config: MongoConfig;
+    private collection?: Collection;
+    private connected: boolean = false;
 
     constructor(config: MongoConfig) {
-        this.config = config;
         this.client = new MongoClient(config.url);
+        this.collection = this.client
+            .db(config.database)
+            .collection(config.collection);
     }
 
-    async init(): Promise<void> {
-        await this.client.connect();
-        const db = this.client.db(this.config.database);
-        this.collection = db.collection<StoredMessage>(this.config.collection);
+    public async connect(): Promise<void> {
+        if (!this.connected) {
+            await this.client.connect();
+            this.connected = true;
+        }
+    }
 
-        // Create indexes
-        await this.collection.createIndex({ topic: 1 });
-        await this.collection.createIndex({ timestamp: 1 });
+    public async disconnect(): Promise<void> {
+        if (this.connected) {
+            await this.client.close();
+            this.connected = false;
+        }
     }
 
     public async storeMessage(topic: string, payload: Buffer): Promise<void> {
-        if (!this.collection) {
-            throw new Error('MongoDB not initialized');
+        if (!this.connected || !this.collection) {
+            throw new Error('MongoDB client not connected');
         }
 
         const message: StoredMessage = {
@@ -44,26 +45,33 @@ export class MongoStorage implements IStorage {
             timestamp: new Date()
         };
 
-        await this.collection.insertOne(message);
+        await this.collection.insertOne({
+            topic: message.topic,
+            payload: message.payload.toString('base64'),
+            timestamp: message.timestamp
+        });
     }
 
-    public async getMessages(topic: string, limit: number = 100): Promise<StoredMessage[]> {
-        if (!this.collection) {
-            throw new Error('MongoDB not initialized');
+    public async getMessages(topic: string): Promise<StoredMessage[]> {
+        if (!this.connected || !this.collection) {
+            throw new Error('MongoDB client not connected');
         }
 
-        const messages = await this.collection
+        const documents = await this.collection
             .find({ topic })
             .sort({ timestamp: -1 })
-            .limit(limit)
             .toArray();
 
-        return messages;
+        return documents.map(doc => ({
+            topic: doc.topic,
+            payload: Buffer.from(doc.payload, 'base64'),
+            timestamp: new Date(doc.timestamp)
+        }));
     }
 
     public async clearMessages(topic?: string): Promise<void> {
-        if (!this.collection) {
-            throw new Error('MongoDB not initialized');
+        if (!this.connected || !this.collection) {
+            throw new Error('MongoDB client not connected');
         }
 
         if (topic) {
@@ -71,9 +79,5 @@ export class MongoStorage implements IStorage {
         } else {
             await this.collection.deleteMany({});
         }
-    }
-
-    async close(): Promise<void> {
-        await this.client.close();
     }
 }

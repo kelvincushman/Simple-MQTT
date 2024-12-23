@@ -1,66 +1,84 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.RedisStorage = void 0;
 const redis_1 = require("redis");
-class RedisStorage {
+const events_1 = __importDefault(require("events"));
+class RedisStorage extends events_1.default {
     constructor(config) {
-        this.messagePrefix = 'mqtt:message:';
+        super();
+        this.connected = false;
+        const url = config.url || `redis://${config.host || 'localhost'}:${config.port || 6379}`;
         this.client = (0, redis_1.createClient)({
-            url: `redis://${config.host}:${config.port}`,
+            url,
             password: config.password
         });
+        this.client.on('error', (err) => {
+            console.error('Redis Client Error:', err);
+            this.connected = false;
+            this.emit('broker.error', err);
+        });
+        this.client.on('ready', () => {
+            this.connected = true;
+        });
+        this.client.on('end', () => {
+            this.connected = false;
+        });
+    }
+    async connect() {
+        if (!this.connected) {
+            await this.client.connect();
+        }
+    }
+    async disconnect() {
+        if (this.connected) {
+            await this.client.quit();
+            this.connected = false;
+        }
     }
     async storeMessage(topic, payload) {
+        if (!this.connected) {
+            throw new Error('Redis client not connected');
+        }
         const message = {
             topic,
             payload,
             timestamp: new Date()
         };
-        const key = `${this.messagePrefix}${topic}:${message.timestamp.getTime()}`;
-        await this.client.set(key, JSON.stringify({
-            topic: message.topic,
-            payload: message.payload.toString('base64'),
-            timestamp: message.timestamp.toISOString()
+        await this.client.hSet(`mqtt:messages:${topic}`, message.timestamp.toISOString(), JSON.stringify({
+            payload: payload.toString('base64'),
+            timestamp: message.timestamp
         }));
     }
-    async getMessages(topic, limit = 100) {
-        const pattern = `${this.messagePrefix}${topic}:*`;
-        const keys = await this.client.keys(pattern);
-        const messages = [];
-        for (const key of keys.slice(0, limit)) {
-            const data = await this.client.get(key);
-            if (data) {
-                const parsed = JSON.parse(data);
-                messages.push({
-                    topic: parsed.topic,
-                    payload: Buffer.from(parsed.payload, 'base64'),
-                    timestamp: new Date(parsed.timestamp)
-                });
-            }
+    async getMessages(topic) {
+        if (!this.connected) {
+            throw new Error('Redis client not connected');
         }
-        return messages.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+        const messages = await this.client.hGetAll(`mqtt:messages:${topic}`);
+        return Object.values(messages).map(msg => {
+            const parsed = JSON.parse(msg);
+            return {
+                topic,
+                payload: Buffer.from(parsed.payload, 'base64'),
+                timestamp: new Date(parsed.timestamp)
+            };
+        });
     }
     async clearMessages(topic) {
+        if (!this.connected) {
+            throw new Error('Redis client not connected');
+        }
         if (topic) {
-            const pattern = `${this.messagePrefix}${topic}:*`;
-            const keys = await this.client.keys(pattern);
-            if (keys.length > 0) {
-                await this.client.del(keys);
-            }
+            await this.client.del(`mqtt:messages:${topic}`);
         }
         else {
-            const pattern = `${this.messagePrefix}*`;
-            const keys = await this.client.keys(pattern);
+            const keys = await this.client.keys('mqtt:messages:*');
             if (keys.length > 0) {
                 await this.client.del(keys);
             }
         }
-    }
-    async connect() {
-        await this.client.connect();
-    }
-    async disconnect() {
-        await this.client.quit();
     }
 }
 exports.RedisStorage = RedisStorage;

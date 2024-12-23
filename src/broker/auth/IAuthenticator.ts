@@ -1,15 +1,9 @@
-export interface AuthResult {
-    success: boolean;
-    error?: string;
-}
-
 export interface AuthCredentials {
     username?: string;
-    password?: Buffer;
+    password?: string;
     clientId: string;
 }
 
 export interface IAuthenticator {
-    authenticate(credentials: AuthCredentials): Promise<AuthResult>;
-    authorize(clientId: string, topic: string, action: 'publish' | 'subscribe'): Promise<boolean>;
+    authenticate(credentials: AuthCredentials): Promise<boolean>;
 }

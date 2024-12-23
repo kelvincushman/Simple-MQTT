@@ -1,79 +1,104 @@
 import { createClient, RedisClientType } from 'redis';
-import { IStorage, StoredMessage } from './IStorage';
+import { IStorage } from './IStorage';
+import { StoredMessage } from '../../types';
+import EventEmitter from 'events';
 
 export interface RedisConfig {
-    host: string;
-    port: number;
+    url?: string;
+    host?: string;
+    port?: number;
     password?: string;
 }
 
-export class RedisStorage implements IStorage {
+export class RedisStorage extends EventEmitter implements IStorage {
     private client: RedisClientType;
-    private readonly messagePrefix = 'mqtt:message:';
+    private connected: boolean = false;
 
     constructor(config: RedisConfig) {
+        super();
+        const url = config.url || `redis://${config.host || 'localhost'}:${config.port || 6379}`;
         this.client = createClient({
-            url: `redis://${config.host}:${config.port}`,
+            url,
             password: config.password
+        });
+
+        this.client.on('error' as any, (err) => {
+            console.error('Redis Client Error:', err);
+            this.connected = false;
+            this.emit('broker.error', err);
+        });
+
+        this.client.on('ready' as any, () => {
+            this.connected = true;
+        });
+
+        this.client.on('end' as any, () => {
+            this.connected = false;
         });
     }
 
+    public async connect(): Promise<void> {
+        if (!this.connected) {
+            await this.client.connect();
+        }
+    }
+
+    public async disconnect(): Promise<void> {
+        if (this.connected) {
+            await this.client.quit();
+            this.connected = false;
+        }
+    }
+
     public async storeMessage(topic: string, payload: Buffer): Promise<void> {
+        if (!this.connected) {
+            throw new Error('Redis client not connected');
+        }
+
         const message: StoredMessage = {
             topic,
             payload,
             timestamp: new Date()
         };
 
-        const key = `${this.messagePrefix}${topic}:${message.timestamp.getTime()}`;
-        await this.client.set(key, JSON.stringify({
-            topic: message.topic,
-            payload: message.payload.toString('base64'),
-            timestamp: message.timestamp.toISOString()
-        }));
+        await this.client.hSet(
+            `mqtt:messages:${topic}`,
+            message.timestamp.toISOString(),
+            JSON.stringify({
+                payload: payload.toString('base64'),
+                timestamp: message.timestamp
+            })
+        );
     }
 
-    public async getMessages(topic: string, limit: number = 100): Promise<StoredMessage[]> {
-        const pattern = `${this.messagePrefix}${topic}:*`;
-        const keys = await this.client.keys(pattern);
-        const messages: StoredMessage[] = [];
-
-        for (const key of keys.slice(0, limit)) {
-            const data = await this.client.get(key);
-            if (data) {
-                const parsed = JSON.parse(data);
-                messages.push({
-                    topic: parsed.topic,
-                    payload: Buffer.from(parsed.payload, 'base64'),
-                    timestamp: new Date(parsed.timestamp)
-                });
-            }
+    public async getMessages(topic: string): Promise<StoredMessage[]> {
+        if (!this.connected) {
+            throw new Error('Redis client not connected');
         }
 
-        return messages.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+        const messages = await this.client.hGetAll(`mqtt:messages:${topic}`);
+        return Object.values(messages).map(msg => {
+            const parsed = JSON.parse(msg);
+            return {
+                topic,
+                payload: Buffer.from(parsed.payload, 'base64'),
+                timestamp: new Date(parsed.timestamp)
+            };
+        });
     }
 
     public async clearMessages(topic?: string): Promise<void> {
+        if (!this.connected) {
+            throw new Error('Redis client not connected');
+        }
+
         if (topic) {
-            const pattern = `${this.messagePrefix}${topic}:*`;
-            const keys = await this.client.keys(pattern);
-            if (keys.length > 0) {
-                await this.client.del(keys);
-            }
+            await this.client.del(`mqtt:messages:${topic}`);
         } else {
-            const pattern = `${this.messagePrefix}*`;
-            const keys = await this.client.keys(pattern);
+            const keys = await this.client.keys('mqtt:messages:*');
             if (keys.length > 0) {
                 await this.client.del(keys);
             }
         }
-    }
-
-    public async connect(): Promise<void> {
-        await this.client.connect();
-    }
-
-    public async disconnect(): Promise<void> {
-        await this.client.quit();
     }
 }
