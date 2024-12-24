@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>MQTT Test Client</title>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        #messages { 
+            border: 1px solid #ccc; 
+            padding: 10px; 
+            height: 200px; 
+            overflow-y: auto;
+            margin-bottom: 10px;
+        }
+        button, input { margin: 5px; padding: 5px; }
+    </style>
+</head>
+<body>
+    <h2>MQTT Test Client</h2>
+    <div>
+        <button onclick="connect()">Connect</button>
+        <button onclick="disconnect()">Disconnect</button>
+        <span id="status">Disconnected</span>
+    </div>
+    <div>
+        <input type="text" id="topic" placeholder="Topic" value="test/topic">
+        <input type="text" id="message" placeholder="Message">
+        <button onclick="publish()">Publish</button>
+    </div>
+    <div>
+        <input type="text" id="subscribeTopic" placeholder="Topic to Subscribe" value="test/#">
+        <button onclick="subscribe()">Subscribe</button>
+    </div>
+    <div id="messages"></div>
+
+    <script>
+        let client = null;
+        const messagesDiv = document.getElementById('messages');
+        const statusSpan = document.getElementById('status');
+
+        function connect() {
+            const clientId = 'mqttjs_' + Math.random().toString(16).substr(2, 8);
+            // Try using the explicit websocket protocol
+            const host = 'ws://127.0.0.1:8080/';
+
+            console.log('Attempting to connect to:', host);
+            
+            const options = {
+                clientId: clientId,
+                clean: true,
+                connectTimeout: 4000,
+                reconnectPeriod: 1000,
+                protocolId: 'MQTT',
+                protocolVersion: 4,
+                keepalive: 60,
+                path: '/'
+            };
+
+            console.log('Connection options:', options);
+
+            try {
+                client = mqtt.connect(host, options);
+
+                client.on('connect', () => {
+                    console.log('Connected successfully');
+                    statusSpan.textContent = 'Connected';
+                    addMessage('Connected to broker');
+                });
+
+                client.on('error', (error) => {
+                    console.error('Connection error:', error);
+                    statusSpan.textContent = 'Error';
+                    addMessage('Error: ' + error.message);
+                });
+
+                client.on('close', () => {
+                    console.log('Connection closed');
+                    statusSpan.textContent = 'Disconnected';
+                    addMessage('Disconnected from broker');
+                });
+
+                client.on('offline', () => {
+                    console.log('Client went offline');
+                    addMessage('Client went offline');
+                });
+
+                client.on('reconnect', () => {
+                    console.log('Attempting to reconnect');
+                    addMessage('Attempting to reconnect');
+                });
+
+                client.on('message', (topic, message) => {
+                    const msg = `Received on ${topic}: ${message.toString()}`;
+                    console.log(msg);
+                    addMessage(msg);
+                });
+            } catch (err) {
+                console.error('Error creating client:', err);
+                addMessage('Error creating client: ' + err.message);
+            }
+        }
+
+        function disconnect() {
+            if (client) {
+                client.end();
+                client = null;
+                statusSpan.textContent = 'Disconnected';
+                addMessage('Disconnected from broker');
+            }
+        }
+
+        function publish() {
+            if (!client) {
+                alert('Please connect first');
+                return;
+            }
+            const topic = document.getElementById('topic').value;
+            const message = document.getElementById('message').value;
+            client.publish(topic, message);
+            addMessage(`Published to ${topic}: ${message}`);
+        }
+
+        function subscribe() {
+            if (!client) {
+                alert('Please connect first');
+                return;
+            }
+            const topic = document.getElementById('subscribeTopic').value;
+            client.subscribe(topic, (err) => {
+                if (!err) {
+                    addMessage(`Subscribed to ${topic}`);
+                } else {
+                    addMessage(`Error subscribing to ${topic}: ${err.message}`);
+                }
+            });
+        }
+
+        function addMessage(message) {
+            const messageElement = document.createElement('div');
+            messageElement.textContent = `${new Date().toLocaleTimeString()} - ${message}`;
+            messagesDiv.appendChild(messageElement);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+    </script>
+</body>
+</html>

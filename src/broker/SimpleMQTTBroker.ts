@@ -1,7 +1,7 @@
-import Aedes from 'aedes';
+import Aedes, { AedesOptions, Client, Connection } from 'aedes';
 import { createServer } from 'net';
 import { createServer as createHttpServer, Server as HttpServer } from 'http';
-import { createServer as createWebSocketServer } from 'websocket-stream';
+import ws from 'ws';
 import EventEmitter from 'events';
 import { BrokerConfig } from '../config';
 import { IStorage } from './storage/IStorage';
@@ -24,14 +24,24 @@ export class SimpleMQTTBroker extends EventEmitter {
     constructor(config: BrokerConfig) {
         super();
         this.config = config;
-        this.broker = new Aedes({
-            authenticate: this.authenticate.bind(this)
-        });
+
+        const aedesConfig: AedesOptions = {
+            id: 'SimpleMQTT',
+            heartbeatInterval: 60000, // 60 seconds
+            connectTimeout: 30000,    // 30 seconds
+            concurrency: 100,
+            queueLimit: 42,
+            maxClientsIdLength: 23
+        };
+
+        this.broker = new Aedes(aedesConfig);
         this.tcpServer = createServer(this.broker.handle);
 
         this.setupEventHandlers();
         this.setupStorage();
-        this.setupAuth();
+        if (config.auth?.enabled) {
+            this.setupAuth();
+        }
     }
 
     private async setupStorage() {
@@ -78,20 +88,9 @@ export class SimpleMQTTBroker extends EventEmitter {
         }
     }
 
-    private async authenticate(client: any, username: string | undefined, password: Buffer | undefined): Promise<boolean> {
-        if (!this.authenticator) {
-            return true;
-        }
-
-        return this.authenticator.authenticate({
-            clientId: client.id,
-            username,
-            password: password ? password.toString() : undefined
-        });
-    }
-
     private setupEventHandlers() {
         this.broker.on('client', (client) => {
+            console.log('Client connected:', client.id);
             this.emit('client.connected', {
                 id: client.id,
                 address: (client.conn as any).remoteAddress
@@ -99,6 +98,7 @@ export class SimpleMQTTBroker extends EventEmitter {
         });
 
         this.broker.on('clientDisconnect', (client) => {
+            console.log('Client disconnected:', client.id);
             this.emit('client.disconnected', {
                 id: client.id,
                 address: (client.conn as any).remoteAddress
@@ -107,6 +107,11 @@ export class SimpleMQTTBroker extends EventEmitter {
 
         this.broker.on('publish', (packet, client) => {
             if (client) {
+                console.log('Message published:', {
+                    topic: packet.topic,
+                    clientId: client.id
+                });
+
                 const payload = packet.payload instanceof Buffer 
                     ? packet.payload 
                     : Buffer.from(packet.payload);
@@ -126,6 +131,10 @@ export class SimpleMQTTBroker extends EventEmitter {
         });
 
         this.broker.on('subscribe', (subscriptions, client) => {
+            console.log('Client subscribed:', {
+                clientId: client.id,
+                topics: subscriptions.map(s => s.topic)
+            });
             this.emit('client.subscribe', {
                 clientId: client.id,
                 subscriptions: subscriptions.map(s => ({
@@ -135,8 +144,29 @@ export class SimpleMQTTBroker extends EventEmitter {
             });
         });
 
-        this.broker.on('clientError', (_client: any, error: Error) => {
-            this.emit('broker.error', error);
+        this.broker.on('clientError', (client: Client | null, error: Error) => {
+            console.error('Client error:', {
+                clientId: client?.id,
+                error: error.message,
+                stack: error.stack
+            });
+            this.emit('broker.error', {
+                error: error.message,
+                clientId: client?.id
+            });
+        });
+
+        this.broker.on('connectionError', (client: Client | null, error: Error) => {
+            console.error('Connection error:', {
+                clientId: client?.id,
+                error: error.message,
+                stack: error.stack
+            });
+            this.emit('broker.error', {
+                error: error.message,
+                clientId: client?.id,
+                type: 'connection'
+            });
         });
     }
 
@@ -149,16 +179,45 @@ export class SimpleMQTTBroker extends EventEmitter {
                     if (this.config.mqtt.websocket?.enabled) {
                         const httpServer = createHttpServer();
                         this.wsServer = httpServer;
-                        const wsServer = createWebSocketServer({ server: httpServer });
-                        wsServer.on('connection', this.broker.handle);
                         
-                        httpServer.listen(this.config.mqtt.websocket.port, () => {
-                            console.log(`WebSocket server listening on port ${this.config.mqtt.websocket?.port}`);
+                        const wsServer = new ws.Server({ 
+                            server: httpServer,
+                            path: '/'
+                        });
+                        
+                        wsServer.on('connection', (socket: ws, request: any) => {
+                            console.log('New WebSocket connection from:', request.socket.remoteAddress);
+                            
+                            const stream = ws.createWebSocketStream(socket);
+                            
+                            stream.on('error', (error: Error) => {
+                                console.error('WebSocket stream error:', error);
+                            });
+                            
+                            this.broker.handle(stream);
+                        });
+                        
+                        wsServer.on('error', (error: Error) => {
+                            console.error('WebSocket server error:', error);
+                            this.emit('broker.error', {
+                                error: error.message,
+                                type: 'websocket'
+                            });
+                        });
+                        
+                        const port = this.config.mqtt.websocket?.port || 8080;
+                        httpServer.listen(port, () => {
+                            console.log(`WebSocket server listening on port ${port}`);
                             resolve();
                         });
                     } else {
                         resolve();
                     }
+                });
+
+                this.tcpServer.on('error', (error) => {
+                    console.error('TCP server error:', error);
+                    reject(error);
                 });
             } catch (error) {
                 reject(error);
@@ -169,14 +228,10 @@ export class SimpleMQTTBroker extends EventEmitter {
     public async stop(): Promise<void> {
         return new Promise((resolve, reject) => {
             try {
-                if (this.storage) {
-                    this.storage.disconnect();
+                if (this.wsServer) {
+                    this.wsServer.close();
                 }
-
                 this.tcpServer.close(() => {
-                    if (this.wsServer) {
-                        this.wsServer.close();
-                    }
                     this.broker.close(() => {
                         resolve();
                     });
@@ -189,13 +244,5 @@ export class SimpleMQTTBroker extends EventEmitter {
 
     public getStorage(): IStorage | undefined {
         return this.storage;
-    }
-}
-
-// Add event type declarations
-declare module 'events' {
-    interface EventEmitter {
-        on<K extends keyof BrokerEvents>(event: K, listener: (arg: BrokerEvents[K]) => void): this;
-        emit<K extends keyof BrokerEvents>(event: K, arg: BrokerEvents[K]): boolean;
     }
 }

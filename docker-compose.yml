@@ -1,0 +1,9 @@
+services:
+  mqtt_broker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mqtt_broker
+    ports:
+      - "1883:1883"  # MQTT TCP port
+      - "8080:8080"  # WebSocket port

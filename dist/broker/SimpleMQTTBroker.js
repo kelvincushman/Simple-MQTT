@@ -7,7 +7,7 @@ exports.SimpleMQTTBroker = void 0;
 const aedes_1 = __importDefault(require("aedes"));
 const net_1 = require("net");
 const http_1 = require("http");
-const websocket_stream_1 = require("websocket-stream");
+const ws_1 = __importDefault(require("ws"));
 const events_1 = __importDefault(require("events"));
 const MongoStorage_1 = require("./storage/MongoStorage");
 const RedisStorage_1 = require("./storage/RedisStorage");
@@ -18,13 +18,21 @@ class SimpleMQTTBroker extends events_1.default {
     constructor(config) {
         super();
         this.config = config;
-        this.broker = new aedes_1.default({
-            authenticate: this.authenticate.bind(this)
-        });
+        const aedesConfig = {
+            id: 'SimpleMQTT',
+            heartbeatInterval: 60000, // 60 seconds
+            connectTimeout: 30000, // 30 seconds
+            concurrency: 100,
+            queueLimit: 42,
+            maxClientsIdLength: 23
+        };
+        this.broker = new aedes_1.default(aedesConfig);
         this.tcpServer = (0, net_1.createServer)(this.broker.handle);
         this.setupEventHandlers();
         this.setupStorage();
-        this.setupAuth();
+        if (config.auth?.enabled) {
+            this.setupAuth();
+        }
     }
     async setupStorage() {
         if (!this.config.persistence?.enabled) {
@@ -66,24 +74,16 @@ class SimpleMQTTBroker extends events_1.default {
                 break;
         }
     }
-    async authenticate(client, username, password) {
-        if (!this.authenticator) {
-            return true;
-        }
-        return this.authenticator.authenticate({
-            clientId: client.id,
-            username,
-            password: password ? password.toString() : undefined
-        });
-    }
     setupEventHandlers() {
         this.broker.on('client', (client) => {
+            console.log('Client connected:', client.id);
             this.emit('client.connected', {
                 id: client.id,
                 address: client.conn.remoteAddress
             });
         });
         this.broker.on('clientDisconnect', (client) => {
+            console.log('Client disconnected:', client.id);
             this.emit('client.disconnected', {
                 id: client.id,
                 address: client.conn.remoteAddress
@@ -91,6 +91,10 @@ class SimpleMQTTBroker extends events_1.default {
         });
         this.broker.on('publish', (packet, client) => {
             if (client) {
+                console.log('Message published:', {
+                    topic: packet.topic,
+                    clientId: client.id
+                });
                 const payload = packet.payload instanceof Buffer
                     ? packet.payload
                     : Buffer.from(packet.payload);
@@ -107,6 +111,10 @@ class SimpleMQTTBroker extends events_1.default {
             }
         });
         this.broker.on('subscribe', (subscriptions, client) => {
+            console.log('Client subscribed:', {
+                clientId: client.id,
+                topics: subscriptions.map(s => s.topic)
+            });
             this.emit('client.subscribe', {
                 clientId: client.id,
                 subscriptions: subscriptions.map(s => ({
@@ -115,8 +123,28 @@ class SimpleMQTTBroker extends events_1.default {
                 }))
             });
         });
-        this.broker.on('clientError', (_client, error) => {
-            this.emit('broker.error', error);
+        this.broker.on('clientError', (client, error) => {
+            console.error('Client error:', {
+                clientId: client?.id,
+                error: error.message,
+                stack: error.stack
+            });
+            this.emit('broker.error', {
+                error: error.message,
+                clientId: client?.id
+            });
+        });
+        this.broker.on('connectionError', (client, error) => {
+            console.error('Connection error:', {
+                clientId: client?.id,
+                error: error.message,
+                stack: error.stack
+            });
+            this.emit('broker.error', {
+                error: error.message,
+                clientId: client?.id,
+                type: 'connection'
+            });
         });
     }
     async start() {
@@ -127,16 +155,38 @@ class SimpleMQTTBroker extends events_1.default {
                     if (this.config.mqtt.websocket?.enabled) {
                         const httpServer = (0, http_1.createServer)();
                         this.wsServer = httpServer;
-                        const wsServer = (0, websocket_stream_1.createServer)({ server: httpServer });
-                        wsServer.on('connection', this.broker.handle);
-                        httpServer.listen(this.config.mqtt.websocket.port, () => {
-                            console.log(`WebSocket server listening on port ${this.config.mqtt.websocket?.port}`);
+                        const wsServer = new ws_1.default.Server({
+                            server: httpServer,
+                            path: '/'
+                        });
+                        wsServer.on('connection', (socket, request) => {
+                            console.log('New WebSocket connection from:', request.socket.remoteAddress);
+                            const stream = ws_1.default.createWebSocketStream(socket);
+                            stream.on('error', (error) => {
+                                console.error('WebSocket stream error:', error);
+                            });
+                            this.broker.handle(stream);
+                        });
+                        wsServer.on('error', (error) => {
+                            console.error('WebSocket server error:', error);
+                            this.emit('broker.error', {
+                                error: error.message,
+                                type: 'websocket'
+                            });
+                        });
+                        const port = this.config.mqtt.websocket?.port || 8080;
+                        httpServer.listen(port, () => {
+                            console.log(`WebSocket server listening on port ${port}`);
                             resolve();
                         });
                     }
                     else {
                         resolve();
                     }
+                });
+                this.tcpServer.on('error', (error) => {
+                    console.error('TCP server error:', error);
+                    reject(error);
                 });
             }
             catch (error) {
@@ -147,13 +197,10 @@ class SimpleMQTTBroker extends events_1.default {
     async stop() {
         return new Promise((resolve, reject) => {
             try {
-                if (this.storage) {
-                    this.storage.disconnect();
+                if (this.wsServer) {
+                    this.wsServer.close();
                 }
                 this.tcpServer.close(() => {
-                    if (this.wsServer) {
-                        this.wsServer.close();
-                    }
                     this.broker.close(() => {
                         resolve();
                     });

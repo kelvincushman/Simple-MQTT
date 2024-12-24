@@ -127,6 +127,67 @@ const broker = new SimpleMQTTBroker({
 });
 ```
 
+## Docker Support
+
+### Using Docker Compose
+
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/Simple-MQTT.git
+cd Simple-MQTT
+```
+
+2. Build and run using Docker Compose:
+```bash
+cd docker/SimpleMQTT
+docker-compose up --build
+```
+
+This will:
+- Build the TypeScript code
+- Create a Docker container
+- Start the MQTT broker on port 1883
+- Start the WebSocket server on port 8080
+- Serve the test client at http://localhost:8000/test-client.html
+
+### Manual Docker Build
+
+If you prefer to build and run the container manually:
+
+1. Build the image:
+```bash
+docker build -t simple-mqtt -f docker/SimpleMQTT/Dockerfile .
+```
+
+2. Run the container:
+```bash
+docker run -p 1883:1883 -p 8080:8080 -p 8000:8000 simple-mqtt
+```
+
+### Environment Variables
+
+The Docker container supports the following environment variables:
+
+- `MQTT_PORT`: MQTT broker port (default: 1883)
+- `MQTT_HOST`: MQTT broker host (default: 0.0.0.0)
+- `WS_PORT`: WebSocket port (default: 8080)
+- `HTTP_PORT`: HTTP server port for test client (default: 8000)
+
+Example with custom ports:
+```bash
+docker run -e MQTT_PORT=1884 -e WS_PORT=8081 -p 1884:1884 -p 8081:8081 simple-mqtt
+```
+
+### Docker Compose Configuration
+
+The default `docker-compose.yml` includes:
+- MQTT broker service
+- Exposed ports for MQTT, WebSocket, and HTTP
+- Volume mapping for development
+- Auto-restart on failure
+
+You can customize the configuration by editing `docker/SimpleMQTT/docker-compose.yml`.
+
 ## API Documentation
 
 ### SimpleMQTTBroker
