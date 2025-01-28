@@ -1,7 +1,7 @@
 # Simple MQTT Broker
 
 A modern, TypeScript-based MQTT broker with support for WebSocket connections, multiple storage backends, and authentication mechanisms, Developed by Kelvin Lee for his Aitent project to provide a lightweight modern solution. 
-
+big thank to CodeDrivenMitch https://github.com/CodeDrivenMitch/adonis-mqtt for providing a great base project.
 ## Features
 
 - 🚀 Modern TypeScript implementation
